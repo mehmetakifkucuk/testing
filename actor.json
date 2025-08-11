@@ -1,0 +1,34 @@
+{
+  "actorSpecification": 1,
+  "name": "amazon-headphones-scraper",
+  "title": "Amazon Wireless Headphones Scraper",
+  "description": "Scrape wireless headphones under $100 from Amazon. Optimized for low memory usage and free plan compatibility.",
+  "version": "1.0.0",
+  "meta": {
+    "templateId": "python-start"
+  },
+  "input": {
+    "title": "Amazon Headphones Scraper Input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+      "startUrl": {
+        "title": "Start URL",
+        "type": "string",
+        "description": "Amazon search URL to start scraping from",
+        "default": "https://www.amazon.com/s?k=wireless+headphones&rh=p_36%3A-10000&ref=sr_nr_p_36_1",
+        "prefill": "https://www.amazon.com/s?k=wireless+headphones&rh=p_36%3A-10000&ref=sr_nr_p_36_1"
+      },
+      "maxProducts": {
+        "title": "Maximum Products",
+        "type": "integer",
+        "description": "Maximum number of products to scrape",
+        "default": 20000,
+        "minimum": 1,
+        "maximum": 50000
+      }
+    },
+    "required": ["startUrl"]
+  },
+  "dockerfile": "./Dockerfile"
+}
