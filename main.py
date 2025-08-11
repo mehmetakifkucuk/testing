@@ -40,6 +40,7 @@ class AmazonScraper:
         self.session_rotation_limit = random.randint(session_min_requests, session_max_requests) if session_rotation_enabled else float('inf')
         self.current_session_id = f"session_{int(time.time())}"
         self.session_count = 0
+        self.emergency_rotations = 0
         
     def setup_session(self):
         """Configure session with headers and settings"""
@@ -149,8 +150,29 @@ class AmazonScraper:
                         return BeautifulSoup(response.content, 'html.parser')
                         
                 elif response.status_code == 503:
-                    Actor.log.warning(f"Service unavailable (503), retrying... Attempt {attempt + 1}")
-                    time.sleep(random.uniform(5, 10))
+                    Actor.log.warning(f"Service unavailable (503) - Amazon blocking! Force rotating session...")
+                    
+                    # Force immediate session rotation on 503
+                    if self.proxy_configuration and self.session_rotation_enabled:
+                        self.emergency_rotations += 1
+                        self.session_count += 1
+                        old_session_id = self.current_session_id
+                        self.current_session_id = f"emergency_session_{int(time.time())}_{self.session_count}"
+                        self.current_session_requests = 0
+                        self.session_rotation_limit = random.randint(self.session_min_requests, self.session_max_requests)
+                        
+                        Actor.log.info(f"🚨 EMERGENCY SESSION ROTATION #{self.session_count} (Emergency #{self.emergency_rotations})")
+                        Actor.log.info(f"   🔄 Forced rotation due to 503 error")
+                        Actor.log.info(f"   📥 New emergency session: {self.current_session_id[-25:]}")
+                        Actor.log.info(f"   🎯 Next rotation in: {self.session_rotation_limit} requests")
+                    elif self.proxy_configuration:
+                        # Even without session rotation, try to get new proxy
+                        Actor.log.info(f"🚨 503 ERROR - Attempting to get fresh proxy...")
+                    else:
+                        Actor.log.info(f"🚨 503 ERROR - No proxy available, cooling down...")
+                    
+                    # Longer delay after 503 to cool down
+                    time.sleep(random.uniform(10, 15))
                     continue
                     
                 else:
@@ -501,6 +523,8 @@ async def main():
             
             if session_rotation_enabled:
                 Actor.log.info(f"   🎯 Total sessions created: {scraper.session_count + 1}")
+                if scraper.emergency_rotations > 0:
+                    Actor.log.info(f"   🚨 Emergency rotations (503 errors): {scraper.emergency_rotations}")
                 avg_requests_per_session = scraper.proxy_stats['total_requests'] / max(1, scraper.session_count + 1)
                 Actor.log.info(f"   📊 Avg requests per session: {avg_requests_per_session:.1f}")
                 
