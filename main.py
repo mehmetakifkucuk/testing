@@ -30,16 +30,12 @@ class AmazonScraper:
         self.current_ip = None
         
     def check_current_ip(self):
-        """Check and log current IP address"""
+        """Check and return current IP address"""
         try:
-            ip_response = self.session.get('https://httpbin.org/ip', timeout=10)
+            ip_response = self.session.get('https://httpbin.org/ip', timeout=5)
             if ip_response.status_code == 200:
                 ip_data = ip_response.json()
-                new_ip = ip_data.get('origin', 'Unknown')
-                if new_ip != self.current_ip:
-                    self.current_ip = new_ip
-                    Actor.log.info(f"🌐 Current IP: {self.current_ip}")
-                return new_ip
+                return ip_data.get('origin', 'Unknown')
         except Exception as e:
             Actor.log.warning(f"Failed to check IP: {str(e)}")
         return None
@@ -80,7 +76,9 @@ class AmazonScraper:
                 
                 # Show IP if enabled
                 if self.show_ip and attempt == 0:  # Only show on first attempt
-                    self.check_current_ip()
+                    current_ip = self.check_current_ip()
+                    if current_ip:
+                        Actor.log.info(f"🌐 Using IP: {current_ip} for {url[:60]}...")
                 
                 response = self.session.get(url, timeout=self.request_timeout)
                 
