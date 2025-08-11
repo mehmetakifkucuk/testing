@@ -1,15 +1,6 @@
-    async def check_current_ip(self, proxies=None):
-        """Check and return current IP address"""
-        try:
-            ip_response = self.session.get('https://httpbin.org/ip', timeout=5, proxies=proxies)
-            if ip_response.status_code == 200:
-                ip_data = ip_response.json()
-                return ip_data.get('origin', 'Unknown')
-        except Exception as e:
-            Actor.log.warning(f"Failed to check IP: {str(e)}")
-        return None#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
-Amazon Wireless Headphones Scraper
+Amazon Wireless Headphones Scraper with Smart Session Rotation
 Optimized for low memory usage on Apify Free Plan
 """
 
@@ -25,8 +16,9 @@ from bs4 import BeautifulSoup
 from apify import Actor
 
 class AmazonScraper:
-    def __init__(self, min_delay=1.0, max_delay=3.0, request_timeout=30, show_ip=False, proxy_configuration=None, 
-                 session_rotation_enabled=False, session_min_requests=30, session_max_requests=50):
+    def __init__(self, min_delay=1.0, max_delay=3.0, request_timeout=30, show_ip=False, 
+                 proxy_configuration=None, session_rotation_enabled=False, 
+                 session_min_requests=30, session_max_requests=50):
         self.session = requests.Session()
         self.setup_session()
         self.products = []
@@ -38,7 +30,6 @@ class AmazonScraper:
         self.request_timeout = request_timeout
         self.show_ip = show_ip
         self.proxy_configuration = proxy_configuration
-        self.current_ip = None
         self.proxy_stats = {'total_requests': 0, 'unique_ips': set()}
         
         # Session rotation parameters
@@ -49,37 +40,6 @@ class AmazonScraper:
         self.session_rotation_limit = random.randint(session_min_requests, session_max_requests) if session_rotation_enabled else float('inf')
         self.current_session_id = f"session_{int(time.time())}"
         self.session_count = 0
-        
-    async def rotate_session_if_needed(self):
-        """Rotate session if the current session has reached its limit"""
-        if not self.session_rotation_enabled:
-            return False
-            
-        if self.current_session_requests >= self.session_rotation_limit:
-            # Time to rotate!
-            self.session_count += 1
-            old_session_id = self.current_session_id
-            self.current_session_id = f"session_{int(time.time())}_{self.session_count}"
-            self.current_session_requests = 0
-            self.session_rotation_limit = random.randint(self.session_min_requests, self.session_max_requests)
-            
-            Actor.log.info(f"🔄 SESSION ROTATION #{self.session_count}")
-            Actor.log.info(f"   📤 Old session: {old_session_id[-20:]}")
-            Actor.log.info(f"   📥 New session: {self.current_session_id[-20:]}")
-            Actor.log.info(f"   🎯 Next rotation in: {self.session_rotation_limit} requests")
-            Actor.log.info(f"   🌐 Expecting new IP on next request...")
-            
-            return True
-        return False
-        """Check and return current IP address"""
-        try:
-            ip_response = self.session.get('https://httpbin.org/ip', timeout=5, proxies=proxies)
-            if ip_response.status_code == 200:
-                ip_data = ip_response.json()
-                return ip_data.get('origin', 'Unknown')
-        except Exception as e:
-            Actor.log.warning(f"Failed to check IP: {str(e)}")
-        return None
         
     def setup_session(self):
         """Configure session with headers and settings"""
@@ -107,6 +67,39 @@ class AmazonScraper:
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
         ]
         return random.choice(user_agents)
+    
+    async def rotate_session_if_needed(self):
+        """Rotate session if the current session has reached its limit"""
+        if not self.session_rotation_enabled:
+            return False
+            
+        if self.current_session_requests >= self.session_rotation_limit:
+            # Time to rotate!
+            self.session_count += 1
+            old_session_id = self.current_session_id
+            self.current_session_id = f"session_{int(time.time())}_{self.session_count}"
+            self.current_session_requests = 0
+            self.session_rotation_limit = random.randint(self.session_min_requests, self.session_max_requests)
+            
+            Actor.log.info(f"🔄 SESSION ROTATION #{self.session_count}")
+            Actor.log.info(f"   📤 Old session: {old_session_id[-20:]}")
+            Actor.log.info(f"   📥 New session: {self.current_session_id[-20:]}")
+            Actor.log.info(f"   🎯 Next rotation in: {self.session_rotation_limit} requests")
+            Actor.log.info(f"   🌐 Expecting new IP on next request...")
+            
+            return True
+        return False
+
+    async def check_current_ip(self, proxies=None):
+        """Check and return current IP address"""
+        try:
+            ip_response = self.session.get('https://httpbin.org/ip', timeout=5, proxies=proxies)
+            if ip_response.status_code == 200:
+                ip_data = ip_response.json()
+                return ip_data.get('origin', 'Unknown')
+        except Exception as e:
+            Actor.log.warning(f"Failed to check IP: {str(e)}")
+        return None
     
     async def make_request(self, url: str, retries: int = 3) -> Optional[BeautifulSoup]:
         """Make HTTP request with retry logic and smart session rotation"""
