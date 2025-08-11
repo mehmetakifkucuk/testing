@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from apify import Actor
 
 class AmazonScraper:
-    def __init__(self, min_delay=1.0, max_delay=3.0, request_timeout=30, show_ip=False):
+    def __init__(self, min_delay=1.0, max_delay=3.0, request_timeout=30, show_ip=False, proxy_configuration=None):
         self.session = requests.Session()
         self.setup_session()
         self.products = []
@@ -27,12 +27,14 @@ class AmazonScraper:
         self.max_delay = max_delay
         self.request_timeout = request_timeout
         self.show_ip = show_ip
+        self.proxy_configuration = proxy_configuration
         self.current_ip = None
+        self.proxy_stats = {'total_requests': 0, 'unique_ips': set()}
         
-    def check_current_ip(self):
+    async def check_current_ip(self, proxies=None):
         """Check and return current IP address"""
         try:
-            ip_response = self.session.get('https://httpbin.org/ip', timeout=5)
+            ip_response = self.session.get('https://httpbin.org/ip', timeout=5, proxies=proxies)
             if ip_response.status_code == 200:
                 ip_data = ip_response.json()
                 return ip_data.get('origin', 'Unknown')
@@ -67,20 +69,37 @@ class AmazonScraper:
         ]
         return random.choice(user_agents)
     
-    def make_request(self, url: str, retries: int = 3) -> Optional[BeautifulSoup]:
-        """Make HTTP request with retry logic"""
+    async def make_request(self, url: str, retries: int = 3) -> Optional[BeautifulSoup]:
+        """Make HTTP request with retry logic and proxy support"""
         for attempt in range(retries):
             try:
                 # Use configurable delay
                 time.sleep(random.uniform(self.min_delay, self.max_delay))
                 
+                # Get proxy URL if configuration exists
+                proxy_url = None
+                if self.proxy_configuration:
+                    proxy_url = await self.proxy_configuration.new_url()
+                
+                # Setup proxies for requests
+                proxies = None
+                if proxy_url:
+                    proxies = {
+                        'http': proxy_url,
+                        'https': proxy_url
+                    }
+                
                 # Show IP if enabled
                 if self.show_ip and attempt == 0:  # Only show on first attempt
-                    current_ip = self.check_current_ip()
+                    current_ip = await self.check_current_ip(proxies)
                     if current_ip:
-                        Actor.log.info(f"🌐 Using IP: {current_ip} for {url[:60]}...")
+                        self.proxy_stats['unique_ips'].add(current_ip)
+                        Actor.log.info(f"🌐 Using IP: {current_ip} for {url[:60]}... (Proxy: {'Yes' if proxy_url else 'No'})")
                 
-                response = self.session.get(url, timeout=self.request_timeout)
+                self.proxy_stats['total_requests'] += 1
+                
+                # Make the request with or without proxy
+                response = self.session.get(url, timeout=self.request_timeout, proxies=proxies)
                 
                 if response.status_code == 200:
                     # Parse with lxml for speed, fallback to html.parser
@@ -344,6 +363,10 @@ class AmazonScraper:
             
             Actor.log.info(f"Total products scraped: {len(self.products)}")
             
+            # Log proxy stats if enabled
+            if self.show_ip:
+                Actor.log.info(f"📊 Proxy Stats - Total requests: {self.proxy_stats['total_requests']}, Unique IPs: {len(self.proxy_stats['unique_ips'])}")
+            
             # Respect rate limits
             time.sleep(random.uniform(self.min_delay * 1.5, self.max_delay * 1.5))
 
@@ -362,18 +385,48 @@ async def main():
         request_timeout = input_data.get('requestTimeout', 30)
         show_ip = input_data.get('showIP', False)
         
+        # Proxy Parameters
+        use_proxy = input_data.get('useProxy', False)
+        proxy_groups = input_data.get('proxyGroups', ['RESIDENTIAL'])
+        proxy_country = input_data.get('proxyCountry', None)
+        
         Actor.log.info(f"🚀 Starting Amazon scraper with URL: {start_url}")
         Actor.log.info(f"📊 Max products: {max_products}")
         Actor.log.info(f"⏱️  Delay range: {min_delay}s - {max_delay}s")
         Actor.log.info(f"⌛ Request timeout: {request_timeout}s")
         Actor.log.info(f"🌐 Show IP: {show_ip}")
+        Actor.log.info(f"🔄 Use Proxy: {use_proxy}")
+        if use_proxy:
+            Actor.log.info(f"📍 Proxy Groups: {proxy_groups}")
+            if proxy_country:
+                Actor.log.info(f"🌍 Proxy Country: {proxy_country}")
+        
+        # Setup proxy configuration
+        proxy_configuration = None
+        if use_proxy:
+            try:
+                proxy_config_params = {'groups': proxy_groups}
+                if proxy_country:
+                    proxy_config_params['country_code'] = proxy_country
+                    
+                proxy_configuration = await Actor.create_proxy_configuration(**proxy_config_params)
+                
+                if proxy_configuration:
+                    Actor.log.info(f"✅ Proxy configuration created successfully!")
+                else:
+                    Actor.log.warning(f"⚠️ Failed to create proxy configuration, continuing without proxy")
+                    
+            except Exception as e:
+                Actor.log.error(f"❌ Proxy setup failed: {str(e)}")
+                Actor.log.info(f"🔄 Continuing without proxy...")
         
         # Initialize scraper with parameters
         scraper = AmazonScraper(
             min_delay=min_delay,
             max_delay=max_delay, 
             request_timeout=request_timeout,
-            show_ip=show_ip
+            show_ip=show_ip,
+            proxy_configuration=proxy_configuration
         )
         
         # Start scraping
@@ -381,6 +434,18 @@ async def main():
         
         Actor.log.info(f"✅ Scraping completed! Total products: {len(scraper.products)}")
         Actor.log.info(f"📈 Average delay used: {(min_delay + max_delay) / 2:.1f}s")
+        
+        # Final proxy stats
+        if show_ip and scraper.proxy_stats['total_requests'] > 0:
+            unique_ip_count = len(scraper.proxy_stats['unique_ips'])
+            Actor.log.info(f"🎯 Final Proxy Stats:")
+            Actor.log.info(f"   📡 Total requests: {scraper.proxy_stats['total_requests']}")
+            Actor.log.info(f"   🌐 Unique IPs used: {unique_ip_count}")
+            Actor.log.info(f"   🔄 IP rotation rate: {unique_ip_count/scraper.proxy_stats['total_requests']*100:.1f}%")
+            if unique_ip_count > 1:
+                Actor.log.info(f"   ✅ Proxy rotation working perfectly!")
+            else:
+                Actor.log.info(f"   ⚠️ No IP rotation detected")
 
 if __name__ == '__main__':
     asyncio.run(main())

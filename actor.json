@@ -56,6 +56,29 @@
         "type": "boolean",
         "description": "Display current IP address in logs (useful for debugging)",
         "default": false
+      },
+      "useProxy": {
+        "title": "Use Apify Proxy",
+        "type": "boolean", 
+        "description": "Enable Apify Proxy for IP rotation (recommended for large scraping jobs)",
+        "default": false
+      },
+      "proxyGroups": {
+        "title": "Proxy Groups",
+        "type": "array",
+        "description": "Proxy groups to use (RESIDENTIAL, BUYPROXIES94952, GOOGLE_SERP)",
+        "default": ["RESIDENTIAL"],
+        "items": {
+          "type": "string",
+          "enum": ["RESIDENTIAL", "BUYPROXIES94952", "GOOGLE_SERP", "AUTO"]
+        }
+      },
+      "proxyCountry": {
+        "title": "Proxy Country",
+        "type": "string",
+        "description": "Country code for proxy geolocation (e.g., US, GB, DE) - leave empty for auto",
+        "default": "",
+        "pattern": "^[A-Z]{2}$|^$"
       }
     },
     "required": ["startUrl"]
