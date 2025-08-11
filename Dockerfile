@@ -8,5 +8,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY main.py ./
 
-# Run the scraper
-CMD python main.py
+# Set the command to run Python script
+CMD ["python", "main.py"]
