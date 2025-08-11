@@ -16,11 +16,33 @@ from bs4 import BeautifulSoup
 from apify import Actor
 
 class AmazonScraper:
-    def __init__(self):
+    def __init__(self, min_delay=1.0, max_delay=3.0, request_timeout=30, show_ip=False):
         self.session = requests.Session()
         self.setup_session()
         self.products = []
         self.processed_asins = set()
+        
+        # Configurable parameters
+        self.min_delay = min_delay
+        self.max_delay = max_delay
+        self.request_timeout = request_timeout
+        self.show_ip = show_ip
+        self.current_ip = None
+        
+    def check_current_ip(self):
+        """Check and log current IP address"""
+        try:
+            ip_response = self.session.get('https://httpbin.org/ip', timeout=10)
+            if ip_response.status_code == 200:
+                ip_data = ip_response.json()
+                new_ip = ip_data.get('origin', 'Unknown')
+                if new_ip != self.current_ip:
+                    self.current_ip = new_ip
+                    Actor.log.info(f"🌐 Current IP: {self.current_ip}")
+                return new_ip
+        except Exception as e:
+            Actor.log.warning(f"Failed to check IP: {str(e)}")
+        return None
         
     def setup_session(self):
         """Configure session with headers and settings"""
@@ -53,10 +75,14 @@ class AmazonScraper:
         """Make HTTP request with retry logic"""
         for attempt in range(retries):
             try:
-                # Random delay to avoid rate limiting
-                time.sleep(random.uniform(1, 3))
+                # Use configurable delay
+                time.sleep(random.uniform(self.min_delay, self.max_delay))
                 
-                response = self.session.get(url, timeout=30)
+                # Show IP if enabled
+                if self.show_ip and attempt == 0:  # Only show on first attempt
+                    self.check_current_ip()
+                
+                response = self.session.get(url, timeout=self.request_timeout)
                 
                 if response.status_code == 200:
                     # Parse with lxml for speed, fallback to html.parser
@@ -76,7 +102,7 @@ class AmazonScraper:
             except Exception as e:
                 Actor.log.error(f"Request failed (attempt {attempt + 1}): {str(e)}")
                 if attempt < retries - 1:
-                    time.sleep(random.uniform(2, 5))
+                    time.sleep(random.uniform(self.min_delay * 2, self.max_delay * 2))
                     
         return None
     
@@ -321,7 +347,7 @@ class AmazonScraper:
             Actor.log.info(f"Total products scraped: {len(self.products)}")
             
             # Respect rate limits
-            time.sleep(random.uniform(2, 4))
+            time.sleep(random.uniform(self.min_delay * 1.5, self.max_delay * 1.5))
 
 async def main():
     async with Actor:
@@ -332,16 +358,31 @@ async def main():
             'https://www.amazon.com/s?k=wireless+headphones&rh=p_36%3A-10000&ref=sr_nr_p_36_1')
         max_products = input_data.get('maxProducts', 20000)
         
-        Actor.log.info(f"Starting Amazon scraper with URL: {start_url}")
-        Actor.log.info(f"Max products to scrape: {max_products}")
+        # Performance & Debug Parameters
+        min_delay = input_data.get('minDelay', 1.0)
+        max_delay = input_data.get('maxDelay', 3.0)
+        request_timeout = input_data.get('requestTimeout', 30)
+        show_ip = input_data.get('showIP', False)
         
-        # Initialize scraper
-        scraper = AmazonScraper()
+        Actor.log.info(f"🚀 Starting Amazon scraper with URL: {start_url}")
+        Actor.log.info(f"📊 Max products: {max_products}")
+        Actor.log.info(f"⏱️  Delay range: {min_delay}s - {max_delay}s")
+        Actor.log.info(f"⌛ Request timeout: {request_timeout}s")
+        Actor.log.info(f"🌐 Show IP: {show_ip}")
+        
+        # Initialize scraper with parameters
+        scraper = AmazonScraper(
+            min_delay=min_delay,
+            max_delay=max_delay, 
+            request_timeout=request_timeout,
+            show_ip=show_ip
+        )
         
         # Start scraping
         await scraper.scrape_search_results(start_url, max_products)
         
-        Actor.log.info(f"Scraping completed! Total products: {len(scraper.products)}")
+        Actor.log.info(f"✅ Scraping completed! Total products: {len(scraper.products)}")
+        Actor.log.info(f"📈 Average delay used: {(min_delay + max_delay) / 2:.1f}s")
 
 if __name__ == '__main__':
     asyncio.run(main())

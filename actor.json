@@ -26,6 +26,36 @@
         "default": 20000,
         "minimum": 1,
         "maximum": 50000
+      },
+      "minDelay": {
+        "title": "Minimum Delay (seconds)",
+        "type": "number",
+        "description": "Minimum delay between requests (lower = faster, higher risk)",
+        "default": 1.0,
+        "minimum": 0.1,
+        "maximum": 10.0
+      },
+      "maxDelay": {
+        "title": "Maximum Delay (seconds)", 
+        "type": "number",
+        "description": "Maximum delay between requests",
+        "default": 3.0,
+        "minimum": 0.5,
+        "maximum": 15.0
+      },
+      "requestTimeout": {
+        "title": "Request Timeout (seconds)",
+        "type": "integer", 
+        "description": "Timeout for each HTTP request",
+        "default": 30,
+        "minimum": 5,
+        "maximum": 120
+      },
+      "showIP": {
+        "title": "Show Current IP",
+        "type": "boolean",
+        "description": "Display current IP address in logs (useful for debugging)",
+        "default": false
       }
     },
     "required": ["startUrl"]
