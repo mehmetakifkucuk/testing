@@ -79,6 +79,28 @@
         "description": "Country code for proxy geolocation (e.g., US, GB, DE) - leave empty for auto",
         "default": "",
         "pattern": "^[A-Z]{2}$|^$"
+      },
+      "sessionRotationEnabled": {
+        "title": "Enable Smart Session Rotation",
+        "type": "boolean",
+        "description": "Rotate sessions (and IPs) after a random number of requests to simulate natural user behavior",
+        "default": false
+      },
+      "sessionMinRequests": {
+        "title": "Min Requests Per Session",
+        "type": "integer",
+        "description": "Minimum number of requests before rotating session (only if session rotation enabled)",
+        "default": 30,
+        "minimum": 5,
+        "maximum": 100
+      },
+      "sessionMaxRequests": {
+        "title": "Max Requests Per Session", 
+        "type": "integer",
+        "description": "Maximum number of requests before rotating session (only if session rotation enabled)",
+        "default": 50,
+        "minimum": 10,
+        "maximum": 200
       }
     },
     "required": ["startUrl"]

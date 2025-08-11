@@ -1,4 +1,13 @@
-#!/usr/bin/env python3
+    async def check_current_ip(self, proxies=None):
+        """Check and return current IP address"""
+        try:
+            ip_response = self.session.get('https://httpbin.org/ip', timeout=5, proxies=proxies)
+            if ip_response.status_code == 200:
+                ip_data = ip_response.json()
+                return ip_data.get('origin', 'Unknown')
+        except Exception as e:
+            Actor.log.warning(f"Failed to check IP: {str(e)}")
+        return None#!/usr/bin/env python3
 """
 Amazon Wireless Headphones Scraper
 Optimized for low memory usage on Apify Free Plan
@@ -16,7 +25,8 @@ from bs4 import BeautifulSoup
 from apify import Actor
 
 class AmazonScraper:
-    def __init__(self, min_delay=1.0, max_delay=3.0, request_timeout=30, show_ip=False, proxy_configuration=None):
+    def __init__(self, min_delay=1.0, max_delay=3.0, request_timeout=30, show_ip=False, proxy_configuration=None, 
+                 session_rotation_enabled=False, session_min_requests=30, session_max_requests=50):
         self.session = requests.Session()
         self.setup_session()
         self.products = []
@@ -31,7 +41,36 @@ class AmazonScraper:
         self.current_ip = None
         self.proxy_stats = {'total_requests': 0, 'unique_ips': set()}
         
-    async def check_current_ip(self, proxies=None):
+        # Session rotation parameters
+        self.session_rotation_enabled = session_rotation_enabled
+        self.session_min_requests = session_min_requests
+        self.session_max_requests = session_max_requests
+        self.current_session_requests = 0
+        self.session_rotation_limit = random.randint(session_min_requests, session_max_requests) if session_rotation_enabled else float('inf')
+        self.current_session_id = f"session_{int(time.time())}"
+        self.session_count = 0
+        
+    async def rotate_session_if_needed(self):
+        """Rotate session if the current session has reached its limit"""
+        if not self.session_rotation_enabled:
+            return False
+            
+        if self.current_session_requests >= self.session_rotation_limit:
+            # Time to rotate!
+            self.session_count += 1
+            old_session_id = self.current_session_id
+            self.current_session_id = f"session_{int(time.time())}_{self.session_count}"
+            self.current_session_requests = 0
+            self.session_rotation_limit = random.randint(self.session_min_requests, self.session_max_requests)
+            
+            Actor.log.info(f"🔄 SESSION ROTATION #{self.session_count}")
+            Actor.log.info(f"   📤 Old session: {old_session_id[-20:]}")
+            Actor.log.info(f"   📥 New session: {self.current_session_id[-20:]}")
+            Actor.log.info(f"   🎯 Next rotation in: {self.session_rotation_limit} requests")
+            Actor.log.info(f"   🌐 Expecting new IP on next request...")
+            
+            return True
+        return False
         """Check and return current IP address"""
         try:
             ip_response = self.session.get('https://httpbin.org/ip', timeout=5, proxies=proxies)
@@ -70,7 +109,11 @@ class AmazonScraper:
         return random.choice(user_agents)
     
     async def make_request(self, url: str, retries: int = 3) -> Optional[BeautifulSoup]:
-        """Make HTTP request with retry logic and proxy support"""
+        """Make HTTP request with retry logic and smart session rotation"""
+        
+        # Check if we need to rotate session
+        session_rotated = await self.rotate_session_if_needed()
+        
         for attempt in range(retries):
             try:
                 # Use configurable delay
@@ -79,7 +122,8 @@ class AmazonScraper:
                 # Get proxy URL if configuration exists
                 proxy_url = None
                 if self.proxy_configuration:
-                    proxy_url = await self.proxy_configuration.new_url()
+                    # Use current session ID for consistent IP within session
+                    proxy_url = await self.proxy_configuration.new_url(session_id=self.current_session_id)
                 
                 # Setup proxies for requests
                 proxies = None
@@ -94,9 +138,12 @@ class AmazonScraper:
                     current_ip = await self.check_current_ip(proxies)
                     if current_ip:
                         self.proxy_stats['unique_ips'].add(current_ip)
-                        Actor.log.info(f"🌐 Using IP: {current_ip} for {url[:60]}... (Proxy: {'Yes' if proxy_url else 'No'})")
+                        rotation_status = "🔄 ROTATED" if session_rotated else "📍 SAME"
+                        session_progress = f"({self.current_session_requests + 1}/{self.session_rotation_limit})"
+                        Actor.log.info(f"🌐 {rotation_status} IP: {current_ip} {session_progress} for {url[:50]}...")
                 
                 self.proxy_stats['total_requests'] += 1
+                self.current_session_requests += 1
                 
                 # Make the request with or without proxy
                 response = self.session.get(url, timeout=self.request_timeout, proxies=proxies)
@@ -365,7 +412,8 @@ class AmazonScraper:
             
             # Log proxy stats if enabled
             if self.show_ip:
-                Actor.log.info(f"📊 Proxy Stats - Total requests: {self.proxy_stats['total_requests']}, Unique IPs: {len(self.proxy_stats['unique_ips'])}")
+                session_info = f"Session #{self.session_count + 1}" if self.session_rotation_enabled else "No session rotation"
+                Actor.log.info(f"📊 Proxy Stats - Total: {self.proxy_stats['total_requests']}, Unique IPs: {len(self.proxy_stats['unique_ips'])}, {session_info}")
             
             # Respect rate limits
             time.sleep(random.uniform(self.min_delay * 1.5, self.max_delay * 1.5))
@@ -390,6 +438,11 @@ async def main():
         proxy_groups = input_data.get('proxyGroups', ['RESIDENTIAL'])
         proxy_country = input_data.get('proxyCountry', None)
         
+        # Session rotation parameters  
+        session_rotation_enabled = input_data.get('sessionRotationEnabled', False)
+        session_min_requests = input_data.get('sessionMinRequests', 30)
+        session_max_requests = input_data.get('sessionMaxRequests', 50)
+        
         Actor.log.info(f"🚀 Starting Amazon scraper with URL: {start_url}")
         Actor.log.info(f"📊 Max products: {max_products}")
         Actor.log.info(f"⏱️  Delay range: {min_delay}s - {max_delay}s")
@@ -400,6 +453,13 @@ async def main():
             Actor.log.info(f"📍 Proxy Groups: {proxy_groups}")
             if proxy_country:
                 Actor.log.info(f"🌍 Proxy Country: {proxy_country}")
+        
+        # Session rotation info
+        if session_rotation_enabled:
+            Actor.log.info(f"🎯 Session Rotation: ENABLED")
+            Actor.log.info(f"   📊 Requests per session: {session_min_requests}-{session_max_requests}")
+        else:
+            Actor.log.info(f"🎯 Session Rotation: DISABLED (single session)")
         
         # Setup proxy configuration
         proxy_configuration = None
@@ -426,7 +486,10 @@ async def main():
             max_delay=max_delay, 
             request_timeout=request_timeout,
             show_ip=show_ip,
-            proxy_configuration=proxy_configuration
+            proxy_configuration=proxy_configuration,
+            session_rotation_enabled=session_rotation_enabled,
+            session_min_requests=session_min_requests,
+            session_max_requests=session_max_requests
         )
         
         # Start scraping
@@ -442,8 +505,16 @@ async def main():
             Actor.log.info(f"   📡 Total requests: {scraper.proxy_stats['total_requests']}")
             Actor.log.info(f"   🌐 Unique IPs used: {unique_ip_count}")
             Actor.log.info(f"   🔄 IP rotation rate: {unique_ip_count/scraper.proxy_stats['total_requests']*100:.1f}%")
+            
+            if session_rotation_enabled:
+                Actor.log.info(f"   🎯 Total sessions created: {scraper.session_count + 1}")
+                avg_requests_per_session = scraper.proxy_stats['total_requests'] / max(1, scraper.session_count + 1)
+                Actor.log.info(f"   📊 Avg requests per session: {avg_requests_per_session:.1f}")
+                
             if unique_ip_count > 1:
-                Actor.log.info(f"   ✅ Proxy rotation working perfectly!")
+                Actor.log.info(f"   ✅ IP rotation working perfectly!")
+            elif session_rotation_enabled and scraper.session_count > 0:
+                Actor.log.info(f"   🔄 Sessions rotated but same IP pool (normal for some proxies)")
             else:
                 Actor.log.info(f"   ⚠️ No IP rotation detected")
 
