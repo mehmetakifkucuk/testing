@@ -315,7 +315,7 @@ class AmazonScraper:
             Actor.log.info(f"Scraping page {page_count}: {current_url}")
             
             # Get search results page
-            soup = self.make_request(current_url)
+            soup = await self.make_request(current_url)
             if not soup:
                 Actor.log.error(f"Failed to load search page: {current_url}")
                 break
@@ -336,7 +336,7 @@ class AmazonScraper:
                 Actor.log.info(f"Scraping product: {link}")
                 
                 # Get product page
-                product_soup = self.make_request(link)
+                product_soup = await self.make_request(link)
                 if not product_soup:
                     continue
                 
